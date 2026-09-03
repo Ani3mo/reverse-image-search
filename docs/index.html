@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reverse Image Search</title>
+  <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+      min-height: 100vh; color: #fff; padding: 30px 20px;
+    }
+    .container { max-width: 1000px; margin: 0 auto; }
+    h1 { text-align: center; margin-bottom: 8px; font-size: 2rem; }
+    .subtitle { text-align: center; color: #b0a8d0; margin-bottom: 26px; }
+    .drop-zone {
+      border: 3px dashed rgba(255,255,255,0.4); border-radius: 20px;
+      padding: 55px 20px; text-align: center; cursor: pointer;
+      transition: all .3s; background: rgba(255,255,255,0.05); margin-bottom: 22px;
+    }
+    .drop-zone:hover, .drop-zone.dragover { border-color: #7c6ff0; background: rgba(124,111,240,0.15); }
+    .upload-icon { font-size: 55px; margin-bottom: 10px; }
+    .drop-zone p { color: #cfc9e8; }
+    .drop-zone .hint { font-size: .85rem; color: #8880aa; margin-top: 8px; }
+    .hidden { display: none !important; }
+    .btn {
+      background: #7c6ff0; color: #fff; border: none; padding: 12px 28px;
+      border-radius: 30px; font-size: 1rem; cursor: pointer; font-weight: 600;
+    }
+    .btn:hover { background: #6155d6; }
+    .btn:disabled { background: #555; cursor: not-allowed; }
+    .status { text-align: center; color: #b0a8d0; margin: 14px 0; }
+
+    .layout { display: grid; grid-template-columns: 280px 1fr; gap: 22px; margin-top: 20px; }
+    @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
+    .panel { background: rgba(255,255,255,0.07); border-radius: 14px; padding: 18px; }
+    .panel h3 { font-size: 1.05rem; margin-bottom: 12px; color: #c5bdf5; }
+    .preview-panel img { width: 100%; max-height: 260px; object-fit: contain; border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,0.4); margin-bottom: 10px; }
+
+    .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 9px; }
+    .meta-item .k { color: #8880aa; font-size: .72rem; text-transform: uppercase; letter-spacing: .5px; }
+    .meta-item .v { color: #eee; margin-top: 2px; word-break: break-word; font-size: .9rem; }
+
+    .links-grid { display: flex; flex-direction: column; gap: 9px; }
+    .links-grid a {
+      background: rgba(124,111,240,0.16); color: #b3a8ff; text-decoration: none;
+      padding: 11px 14px; border-radius: 10px; border: 1px solid #7c6ff055; font-size: .95rem;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .links-grid a:hover { background: #7c6ff0; color: #fff; }
+    .note { font-size: .82rem; color: #887fa8; margin-top: 10px; }
+    .error-box { background: #f4433633; border: 1px solid #f44336; border-radius: 10px; padding: 13px; margin: 14px 0; color: #ffb4ad; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Reverse Image Search</h1>
+    <p class="subtitle">Drop an image to see its EXIF details and open it on Google Lens, TinEye, Bing &amp; Yandex</p>
+
+    <div class="drop-zone" id="dropZone">
+      <div class="upload-icon">🖼️</div>
+      <p>Drag &amp; drop an image here</p>
+      <p class="hint">or click to browse (JPG / PNG / WEBP)</p>
+      <input type="file" id="fileInput" accept="image/*" class="hidden" />
+    </div>
+
+    <div id="status" class="status hidden"></div>
+    <div id="errorBox" class="error-box hidden"></div>
+    <div id="output"></div>
+  </div>
+
+  <script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const status = document.getElementById('status');
+    const errorBox = document.getElementById('errorBox');
+    const output = document.getElementById('output');
+    let selectedFile = null;
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+    ['dragenter','dragover'].forEach(ev => dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.add('dragover'); }));
+    ['dragleave','drop'].forEach(ev => dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.remove('dragover'); }));
+    dropZone.addEventListener('drop', e => { if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+
+    async function handleFile(file) {
+      if (!file.type.startsWith('image/')) return showError('Please choose an image file');
+      selectedFile = file;
+      errorBox.classList.add('hidden');
+      output.innerHTML = '';
+      status.classList.remove('hidden');
+      status.textContent = 'Reading image details...';
+      const previewUrl = URL.createObjectURL(file);
+      const meta = await extractEXIF(file);
+      const imageUrl = await uploadImage(file);
+      status.classList.add('hidden');
+      render(previewUrl, imageUrl, meta);
+    }
+
+    async function extractEXIF(file) {
+      const out = {};
+      try {
+        const meta = await window.exifr.parse(file, true);
+        const d = meta || {};
+        out.make = d.Make || d.maker || '';
+        out.model = d.Model || d.model || '';
+        out.dateTaken = d.DateTimeOriginal || d.CreateDate || d.ModifyDate || '';
+        out.software = d.Software || '';
+        out.exposure = d.ExposureTime ? String(d.ExposureTime) : '';
+        out.iso = d.ISOSpeedRatings || d.isoSpeedRating || '';
+        out.fNumber = d.FNumber || '';
+        out.width = d.ExifImageWidth || d.width || '';
+        out.height = d.ExifImageHeight || d.height || '';
+        if (d.latitude && d.longitude) out.gps = `${d.latitude.toFixed(5)}, ${d.longitude.toFixed(5)}`;
+        out.description = d.ImageDescription || d.description || '';
+      } catch (e) {}
+      return out;
+    }
+
+    async function uploadImage(file) {
+      // Host the image to get a public URL used by the search engines
+      try {
+        const form = new FormData();
+        form.append('reqtype', 'fileupload');
+        form.append('time', '1h');
+        form.append('fileToUpload', file);
+        const r = await fetch('https://catbox.moe/user/api.php', { method: 'POST', body: form });
+        const url = (await r.text()).trim();
+        if (url.startsWith('http')) return url;
+      } catch (e) {}
+      try {
+        const form = new FormData();
+        form.append('image', file);
+        const r = await fetch('https://api.imgbb.com/1/upload?key=REPLACE_ME', { method: 'POST', body: form });
+        const j = await r.json();
+        if (j && j.data && j.data.url) return j.data.url;
+      } catch (e) {}
+      return null;
+    }
+
+    function render(previewUrl, imageUrl, meta) {
+      const hasUrl = !!imageUrl;
+      const mk = (u) => (hasUrl ? u + encodeURIComponent(imageUrl) : '#');
+      let html = `<div class="layout">
+        <div class="panel preview-panel">
+          <img src="${esc(previewUrl)}" alt="" />
+          <div class="meta-grid">
+            <div class="meta-item"><div class="k">File</div><div class="v">${esc(selectedFile.name)}</div></div>
+            <div class="meta-item"><div class="k">Type</div><div class="v">${esc(selectedFile.type)}</div></div>
+            <div class="meta-item"><div class="k">Size</div><div class="v">${fmtSize(selectedFile.size)}</div></div>
+            ${meta.width ? `<div class="meta-item"><div class="k">Dimensions</div><div class="v">${esc(meta.width)} × ${esc(meta.height)} px</div></div>` : ''}
+            ${meta.make ? `<div class="meta-item"><div class="k">Camera</div><div class="v">${esc(meta.make)} ${esc(meta.model)}</div></div>` : ''}
+            ${meta.dateTaken ? `<div class="meta-item"><div class="k">Date taken</div><div class="v">${esc(meta.dateTaken)}</div></div>` : ''}
+            ${meta.software ? `<div class="meta-item"><div class="k">Software</div><div class="v">${esc(meta.software)}</div></div>` : ''}
+            ${meta.exposure ? `<div class="meta-item"><div class="k">Exposure</div><div class="v">${esc(meta.exposure)}s</div></div>` : ''}
+            ${meta.fNumber ? `<div class="meta-item"><div class="k">Aperture</div><div class="v">f/${esc(meta.fNumber)}</div></div>` : ''}
+            ${meta.iso ? `<div class="meta-item"><div class="k">ISO</div><div class="v">${esc(meta.iso)}</div></div>` : ''}
+            ${meta.gps ? `<div class="meta-item"><div class="k">GPS</div><div class="v">${esc(meta.gps)}</div></div>` : ''}
+            ${meta.description ? `<div class="meta-item"><div class="k">Description</div><div class="v">${esc(meta.description)}</div></div>` : ''}
+          </div>
+        </div>
+        <div class="panel">
+          <h3>🔎 Search this image</h3>
+          <div class="links-grid">
+            <a href="${mk('https://lens.google.com/uploadbyurl?url=')}" target="_blank">Google Lens <span>↗</span></a>
+            <a href="${mk('https://tineye.com/search?url=')}" target="_blank">TinEye <span>↗</span></a>
+            <a href="${mk('https://www.bing.com/images/searchbyimage?q=imgurl:')}" target="_blank">Bing Visual <span>↗</span></a>
+            <a href="${mk('https://yandex.com/images/search?rpt=imageview&url=')}" target="_blank">Yandex <span>↗</span></a>
+          </div>
+          ${hasUrl ? `<div class="note">Your image is hosted at a public link, so the search engines above can find where it appears online.</div>`
+                    : `<div class="note">Could not host the image this time — the search links still work but you can also upload the file directly on each site.</div>`}
+        </div>
+      </div>`;
+      output.innerHTML = html;
+    }
+
+    function fmtSize(b) { if (b > 1048576) return (b/1048576).toFixed(1)+' MB'; if (b > 1024) return (b/1024).toFixed(1)+' KB'; return b+' B'; }
+    function esc(s) { return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function showError(m) { errorBox.textContent = m; errorBox.classList.remove('hidden'); }
+  </script>
+</body>
+</html>
