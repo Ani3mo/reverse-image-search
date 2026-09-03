@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reverse Image Search</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+      min-height: 100vh; color: #fff; padding: 35px 20px;
+    }
+    .container { max-width: 1100px; margin: 0 auto; }
+    h1 { text-align: center; margin-bottom: 8px; font-size: 2.2rem; }
+    .subtitle { text-align: center; color: #b0a8d0; margin-bottom: 28px; }
+
+    .drop-zone {
+      border: 3px dashed rgba(255,255,255,0.4); border-radius: 20px;
+      padding: 55px 20px; text-align: center; cursor: pointer;
+      transition: all 0.3s ease; background: rgba(255,255,255,0.05); margin-bottom: 25px;
+    }
+    .drop-zone:hover, .drop-zone.dragover { border-color: #7c6ff0; background: rgba(124,111,240,0.15); }
+    .drop-zone.dragover { transform: scale(1.02); }
+    .upload-icon { font-size: 55px; margin-bottom: 12px; }
+    .drop-zone p { color: #cfc9e8; font-size: 1.05rem; }
+    .drop-zone .hint { font-size: 0.85rem; color: #8880aa; margin-top: 8px; }
+    .btn {
+      background: #7c6ff0; color: #fff; border: none; padding: 12px 30px;
+      border-radius: 30px; font-size: 1rem; cursor: pointer; transition: background 0.3s; font-weight: 600;
+    }
+    .btn:hover { background: #6155d6; }
+    .btn:disabled { background: #555; cursor: not-allowed; }
+    .hidden { display: none !important; }
+    .status { text-align: center; color: #b0a8d0; margin: 15px 0; font-size: 1.05rem; }
+    .loader { border: 4px solid #f3f3f3; border-top: 4px solid #7c6ff0; border-radius: 50%; width: 44px; height: 44px; animation: spin 1s linear infinite; margin: 18px auto; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    .card { background: rgba(255,255,255,0.07); border-radius: 14px; padding: 18px 22px; margin-bottom: 16px; }
+    .card h3 { font-size: 1.1rem; margin-bottom: 12px; color: #c5bdf5; }
+
+    /* ===== PREVIEW + RESULTS SIDE BY SIDE ===== */
+    .results-layout {
+      display: grid; grid-template-columns: 300px 1fr; gap: 24px;
+      align-items: start; margin-bottom: 20px;
+    }
+    @media (max-width: 780px) {
+      .results-layout { grid-template-columns: 1fr; }
+    }
+    .preview-panel {
+      background: rgba(255,255,255,0.07); border-radius: 14px; padding: 16px;
+      text-align: center; position: sticky; top: 30px;
+    }
+    .preview-panel img {
+      width: 100%; border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+      margin-bottom: 12px;
+    }
+    .preview-panel .fname { font-size: 0.85rem; color: #a098c4; word-break: break-all; }
+    .preview-panel .dims { font-size: 0.82rem; color: #7870a0; margin-top: 4px; }
+    .right-panel { min-width: 0; }
+
+    /* ===== SIMILAR IMAGES GALLERY ===== */
+    .similar-gallery {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 10px; margin-top: 10px;
+    }
+    .similar-item {
+      position: relative; border-radius: 10px; overflow: hidden;
+      aspect-ratio: 1; cursor: pointer; transition: transform 0.2s;
+    }
+    .similar-item:hover { transform: scale(1.05); }
+    .similar-item img {
+      width: 100%; height: 100%; object-fit: cover; display: block;
+      border: 2px solid rgba(255,255,255,0.1);
+    }
+    .similar-item a {
+      position: absolute; inset: 0; display: flex; align-items: flex-end;
+      text-decoration: none;
+    }
+    .similar-item .label {
+      background: rgba(0,0,0,0.7); color: #ccc; font-size: 0.65rem;
+      padding: 4px 6px; width: 100%; text-align: center; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* ===== MATCH RESULT ROW ===== */
+    .result {
+      background: rgba(255,255,255,0.08); border-radius: 12px; padding: 14px 18px;
+      margin-bottom: 11px; display: grid; grid-template-columns: 90px 1fr; gap: 16px;
+      align-items: center; transition: background 0.2s;
+    }
+    .result:hover { background: rgba(255,255,255,0.14); }
+    .result-thumb { width: 90px; height: 70px; border-radius: 8px; overflow: hidden; }
+    .result-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; background: #0003; }
+    .result-main { min-width: 0; }
+    .result-title { font-weight: 600; margin-bottom: 4px; }
+    .result-title a { color: #9d8fff; text-decoration: none; word-break: break-word; }
+    .result-title a:hover { text-decoration: underline; }
+    .result-meta { font-size: 0.85rem; color: #a99fc9; }
+    .result-meta .src { word-break: break-all; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 0.7rem; background: #7c6ff0; margin-right: 6px; }
+    .badge.date { background: #2e7d32; font-weight: 600; }
+    .badge.engine { background: #455a64; }
+
+    .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+    .meta-item { font-size: 0.88rem; }
+    .meta-item .k { color: #8880aa; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
+    .meta-item .v { color: #eee; margin-top: 2px; word-break: break-word; }
+
+    .engine-chips { display: flex; gap: 10px; flex-wrap: wrap; }
+    .chip { background: rgba(255,255,255,0.1); padding: 6px 14px; border-radius: 20px; font-size: 0.85rem; display: flex; align-items: center; gap: 7px; }
+    .chip.zero { opacity: 0.6; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.ok { background: #4caf50; } .dot.no { background: #f44336; }
+
+    .manual-links { display: flex; gap: 10px; flex-wrap: wrap; }
+    .manual-links a { background: rgba(124,111,240,0.18); color: #b3a8ff; text-decoration: none; padding: 9px 16px; border-radius: 24px; font-size: 0.9rem; border: 1px solid #7c6ff066; }
+    .manual-links a:hover { background: #7c6ff0; color: #fff; }
+    .first-indexed { background: #2e7d3222; border: 1px solid #4caf50; color: #8be08b; padding: 12px 16px; border-radius: 10px; margin-top: 12px; font-size: 0.9rem; }
+    .results-title { font-size: 1.4rem; margin: 20px 0 14px; }
+    .empty { text-align: center; color: #8880aa; padding: 20px; }
+    .error-box { background: #f4433633; border: 1px solid #f44336; border-radius: 10px; padding: 15px; margin: 15px 0; color: #ffb4ad; text-align: center; }
+    .note { font-size: 0.82rem; color: #887fa8; margin-top: 8px; }
+
+    /* lightbox */
+    .lightbox { position: fixed; inset:0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 9999; cursor: pointer; }
+    .lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 8px; box-shadow: 0 0 40px rgba(0,0,0,0.6); }
+    .lightbox .lb-close { position: absolute; top: 20px; right: 30px; font-size: 2.5rem; color: #fff; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Reverse Image Search</h1>
+    <p class="subtitle">Drop an image to find its source, the date it appeared online, and visually similar images</p>
+
+    <div class="drop-zone" id="dropZone">
+      <div class="upload-icon">🖼️</div>
+      <p>Drag &amp; drop an image here</p>
+      <p class="hint">or click to browse (JPG / PNG / WEBP, up to 25 MB)</p>
+      <input type="file" id="fileInput" accept="image/*" class="hidden" />
+    </div>
+
+    <div id="previewSection" class="hidden" style="text-align:center;margin-bottom:20px">
+      <img id="previewImg" style="max-width:300px;max-height:280px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.4);margin-bottom:15px" />
+      <br /><button class="btn" id="searchBtn">Search this image</button>
+    </div>
+
+    <div id="status" class="status hidden"></div>
+    <div id="loader" class="loader hidden"></div>
+    <div id="errorBox" class="error-box hidden"></div>
+    <div id="output"></div>
+  </div>
+
+  <script>
+    const $ = (s) => document.querySelector(s);
+    const $$ = (s) => document.querySelectorAll(s);
+    const dropZone = $('#dropZone'), fileInput = $('#fileInput');
+    const previewSection = $('#previewSection'), previewImg = $('#previewImg');
+    const searchBtn = $('#searchBtn'), status = $('#status'), loader = $('#loader');
+    const errorBox = $('#errorBox'), output = $('#output');
+    let selectedFile = null;
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+    ['dragenter','dragover'].forEach(ev => dropZone.addEventListener(ev, (e) => { e.preventDefault(); dropZone.classList.add('dragover'); }));
+    ['dragleave','drop'].forEach(ev => dropZone.addEventListener(ev, (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); }));
+    dropZone.addEventListener('drop', (e) => { if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+
+    function handleFile(file) {
+      if (!file.type.startsWith('image/')) { showError('Please choose an image file'); return; }
+      selectedFile = file;
+      previewImg.src = URL.createObjectURL(file);
+      previewSection.classList.remove('hidden');
+      errorBox.classList.add('hidden');
+      output.innerHTML = '';
+    }
+    searchBtn.addEventListener('click', searchImage);
+
+    async function searchImage() {
+      if (!selectedFile) return;
+      searchBtn.disabled = true;
+      loader.classList.remove('hidden');
+      status.classList.remove('hidden');
+      status.textContent = 'Searching across 4 engines... This can take up to a minute.';
+      output.innerHTML = '';
+      errorBox.classList.add('hidden');
+      const form = new FormData();
+      form.append('image', selectedFile);
+      try {
+        const resp = await fetch('/api/search', { method: 'POST', body: form });
+        const data = await resp.json();
+        if (!resp.ok || !data.success) throw new Error(data.error || 'Search failed');
+        status.textContent = 'Search complete!';
+        render(data);
+      } catch (err) {
+        showError('Error: ' + err.message);
+        status.classList.add('hidden');
+      } finally {
+        loader.classList.add('hidden');
+        searchBtn.disabled = false;
+      }
+    }
+
+    function render(data) {
+      const md = data.metadata || {};
+      const stats = data.engines || {};
+      const links = data.manualLinks || {};
+      const results = data.results || [];
+      const simImgs = data.similarImages || [];
+
+      // Build side-by-side layout: preview left, content right
+      let html = `<div class="results-layout">`;
+
+      // ===== LEFT PANEL: uploaded image preview + metadata =====
+      html += `<div class="preview-panel">
+        <img src="${esc(data.imageUrl)}" alt="Uploaded image" />
+        <div class="fname">${esc(data.fileName || '')}</div>
+        ${md.width ? `<div class="dims">${md.width} × ${md.height} px · ${md.format ? md.format.toUpperCase() : ''}</div>` : ''}
+      </div>`;
+
+      // ===== RIGHT PANEL: everything else =====
+      html += `<div class="right-panel">`;
+
+      // Engine stats
+      const engRows = [
+        { k: 'TinEye', v: stats.tineye ? stats.tineye.count : 0 },
+        { k: 'Google', v: stats.google ? stats.google.count : 0 },
+        { k: 'Yandex', v: stats.yandex ? stats.yandex.count : 0 },
+        { k: 'Bing', v: stats.bing ? stats.bing.count : 0 }
+      ];
+      html += `<div class="card">
+        <h3>📍 Engines scanned</h3>
+        <div class="engine-chips">
+          ${engRows.map(e => `<span class="chip ${e.v===0?'zero':''}">
+            <span class="dot ${e.v>0?'ok':'no'}"></span>${e.k}: ${e.v} match${e.v===1?'':'es'}</span>`).join('')}
+        </div>
+        ${stats.tineye?.info?.firstIndexed ? `<div class="first-indexed">🕐 First indexed by TinEye on <b>${esc(stats.tineye.info.firstIndexed)}</b></div>` : ''}
+      </div>`;
+
+      // Manual links
+      html += `<div class="card">
+        <h3>🔎 Open manually on an engine</h3>
+        <div class="manual-links">
+          <a href="${esc(links.googleLens||'')}" target="_blank">Google Lens</a>
+          <a href="${esc(links.tinEye||'')}" target="_blank">TinEye</a>
+          <a href="${esc(links.bing||'')}" target="_blank">Bing</a>
+          <a href="${esc(links.yandex||'')}" target="_blank">Yandex</a>
+        </div>
+      </div>`;
+
+      // Metadata
+      const metaItems = [
+        ['Camera', md.make ? `${md.make} ${md.model||''}`.trim() : null],
+        ['Date taken', md.dateTaken], ['Software', md.software],
+        ['Author', md.artist], ['Copyright', md.copyright],
+        ['Exposure', md.exposureTime], ['Aperture', md.fNumber],
+        ['ISO', md.isoSpeed], ['Focal length', md.focalLength],
+        ['GPS', md.gps ? `${md.gps.lat.toFixed(5)}, ${md.gps.lon.toFixed(5)}` : null],
+        ['Description', md.description]
+      ].filter(x => x[1] && x[1] !== '');
+      if (metaItems.length) {
+        html += `<div class="card"><h3>⚙️ Image metadata</h3>
+          <div class="meta-grid">${metaItems.map(([k,v]) => `<div class="meta-item"><div class="k">${k}</div><div class="v">${esc(String(v))}</div></div>`).join('')}</div></div>`;
+      }
+
+      html += `</div>`; // close right-panel
+      html += `</div>`; // close results-layout
+
+      // ===== SIMILAR IMAGES GALLERY (full width) =====
+      if (simImgs.length) {
+        html += `<div class="card">
+          <h3>🖼️ Similar images found (${simImgs.length})</h3>
+          <p class="note" style="margin-top:0;margin-bottom:10px">Visually similar images from across the web — click to open the source page.</p>
+          <div class="similar-gallery">
+            ${simImgs.map(s => `<div class="similar-item" onclick="openLB('${esc(s.image)}')">
+              <img src="${esc(s.image)}" alt="" loading="lazy" onerror="this.parentElement.style.display='none'" />
+              ${s.source ? `<a href="${esc(s.source)}" target="_blank" onclick="event.stopPropagation()">
+                <span class="label">${esc(domain(s.source))}</span></a>` : ''}
+            </div>`).join('')}
+          </div>
+        </div>`;
+      }
+
+      // ===== MATCH RESULTS LIST =====
+      html += `<div class="results-title">🔗 Matches found (${results.length})</div>`;
+      if (results.length) {
+        html += results.map(r => `<div class="result">
+          ${r.thumb ? `<div class="result-thumb"><img src="${esc(r.thumb)}" alt="" loading="lazy" onerror="this.style.display='none'" /></div>` : '<div class="result-thumb" style="background:#fff1;display:flex;align-items:center;justify-content:center;font-size:2rem">📷</div>'}
+          <div class="result-main">
+            <div class="result-title"><a href="${esc(r.source)}" target="_blank">${esc(r.title || domain(r.source) || 'Untitled')}</a></div>
+            ${r.snippet ? `<div class="result-meta">${esc(r.snippet.slice(0,120))}</div>` : ''}
+            <div class="result-meta" style="margin-top:6px">
+              ${r.date ? `<span class="badge date">📅 ${esc(r.date)}</span>` : ''}
+              <span class="badge engine">${esc(r.engine||'')}</span>
+              <span class="src">${esc(r.source)}</span>
+            </div>
+          </div>
+        </div>`).join('');
+      } else {
+        html += `<div class="empty">No exact matches found online. The image may be original, unlisted, or too new. Open it manually via the links above.</div>`;
+      }
+
+      output.innerHTML = html;
+    }
+
+    // Lightbox
+    window.openLB = function(url) {
+      const lb = document.createElement('div');
+      lb.className = 'lightbox';
+      lb.innerHTML = `<span class="lb-close">&times;</span><img src="${esc(url)}" />`;
+      lb.addEventListener('click', (e) => { if (e.target !== lb.querySelector('img')) lb.remove(); });
+      document.body.appendChild(lb);
+    };
+
+    function domain(u) { try { return new URL(u).hostname.replace(/^www\./,''); } catch(e) { return u || ''; } }
+    function esc(s) { return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function showError(m) { errorBox.textContent = m; errorBox.classList.remove('hidden'); }
+  </script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: reverse-image-search
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUPPETEER_SKIP_DOWNLOAD
+        value: "false"
